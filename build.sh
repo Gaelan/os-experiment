@@ -1,4 +1,4 @@
 echo "==> Buliding build container."
-NAME=$(docker build -q .)
+CONTAINER_ID=$(docker build -q .)
 echo "==> Building."
-docker run --rm -v $(pwd):/project $NAME make
+docker run --rm -v $(pwd):/project $CONTAINER_ID make

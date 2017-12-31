@@ -6,11 +6,26 @@ SECTIONS {
     .boot :
     {
         /* ensure that the multiboot header is at the beginning */
-        *(.multiboot_header)
+        KEEP(*(.multiboot_header))
     }
 
     .text :
     {
         *(.text)
+    }
+
+    .rodata :
+    {
+        *(.rodata)
+    }
+
+    .data :
+    {
+        *(.data)
+    }
+
+    .bss :
+    {
+        *(.bss)
     }
 }

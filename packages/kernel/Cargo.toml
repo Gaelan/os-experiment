@@ -3,4 +3,8 @@ name = "kernel"
 version = "0.1.0"
 authors = ["Gaelan Steele <gbs@canishe.com>, Tavi Kohn <tavi.kohn@gmail.com>"]
 
+[lib]
+crate-type = ["staticlib"]
+
 [dependencies]
+rlibc = "1.0"

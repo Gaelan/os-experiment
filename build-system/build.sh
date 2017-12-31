@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 echo "==> Building build container."
 CONTAINER_ID=$(docker build -q .)
 echo "==> Building."

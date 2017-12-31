@@ -2,3 +2,13 @@
 /target/
 **/*.rs.bk
 Cargo.lock
+
+# idea
+.idea
+*.iml
+
+# build output
+*.iso
+*.o
+
+build-system/iso

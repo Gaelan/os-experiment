@@ -10,5 +10,9 @@ RUN apt-get install grub -y
 RUN apt-get install grub-pc-bin -y
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 ENV PATH="$PATH:/root/.cargo/bin"
+RUN rustup toolchain install nightly
+RUN rustup default nightly
+RUN cargo install xargo
+RUN rustup component add rust-src
 VOLUME /project
 WORKDIR /project

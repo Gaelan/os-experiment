@@ -10,5 +10,7 @@ Cargo.lock
 # build output
 *.iso
 *.o
+packages/kernel/target
+experiment.kernel
 
 build-system/iso

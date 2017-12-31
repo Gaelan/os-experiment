@@ -5,7 +5,9 @@ RUN apt-get install make -y
 RUN apt-get install llvm -y
 RUN apt-get install clang -y
 RUN apt-get install nasm -y
+RUN apt-get install xorriso -y
 RUN apt-get install grub -y
+RUN apt-get install grub-pc-bin -y
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 ENV PATH="$PATH:/root/.cargo/bin"
 VOLUME /project

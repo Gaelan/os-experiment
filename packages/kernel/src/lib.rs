@@ -21,7 +21,9 @@ mod vga_buffer;
 pub extern "C" fn rust_main() {
     // ATTENTION: we have a very small stack and no guard page
     vga_buffer::clear_screen();
-    println!("foo {}", 5);
+    println!("Foo\tBar\tBaz");
+    println!("1\t2\t3");
+    println!("4\t5\t6");
 
     #[cfg_attr(feature = "cargo-clippy", allow(empty_loop))]
     loop {}

@@ -72,6 +72,8 @@ struct ScreenChar {
 const BUFFER_HEIGHT: usize = 25;
 /// Height of VGA text mode buffer
 const BUFFER_WIDTH: usize = 80;
+/// Width of a tab character.
+const TAB_WIDTH: usize = 8;
 
 /// Text mode VGA screen buffer
 struct Buffer {
@@ -97,6 +99,13 @@ impl Writer {
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
             b'\n' => self.new_line(),
+            b'\t' => {
+                self.column_position =
+                    (self.column_position - (self.column_position % TAB_WIDTH)) + TAB_WIDTH;
+                if self.column_position >= BUFFER_WIDTH {
+                    self.new_line();
+                }
+            }
             byte => {
                 if self.column_position >= BUFFER_WIDTH {
                     self.new_line();

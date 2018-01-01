@@ -136,7 +136,7 @@ impl Writer {
     /// Draws a new line by pushing everything up a line and clearing the bottom row.
     fn new_line(&mut self) {
         for row in 1..BUFFER_HEIGHT {
-            for col in 0..BUFFER_HEIGHT {
+            for col in 0..BUFFER_WIDTH {
                 let buffer = self.buffer();
                 let character = buffer.chars[row][col].read();
                 buffer.chars[row - 1][col].write(character);

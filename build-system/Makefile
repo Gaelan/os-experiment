@@ -32,12 +32,15 @@ $(assembly_dir)/%.o: $(assembly_dir)/%.asm
 
 kernel: $(kernel_lib)
 
+$(kernel_lib): export CARGO_HOME=/project/build/cache/cargo
 $(kernel_lib): rustfmt clippy $(kernel_sources)
 	cd $(kernel_dir); export RUST_TARGET_PATH="`pwd`"; xargo build --target=$(kernel_target)
 
+rustfmt: export CARGO_HOME=/project/build/cache/cargo
 rustfmt: $(kernel_sources)
 	cd $(kernel_dir); cargo fmt
 
+clippy: export CARGO_HOME=/project/build/cache/cargo
 clippy: $(kernel_sources)
 	cd $(kernel_dir); cargo clippy
 

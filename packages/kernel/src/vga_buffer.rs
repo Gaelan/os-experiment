@@ -174,7 +174,7 @@ impl fmt::Write for Writer {
 /// and we don't have a better locking mechanism yet.
 pub static WRITER: spin::Mutex<Writer> = spin::Mutex::new(Writer {
     column_position: 0,
-    color_code: ColorCode::new(Color::LightGreen, Color::Black),
+    color_code: ColorCode::new(Color::LightGray, Color::Black),
     buffer: unsafe { Unique::new_unchecked(0xb_8000 as *mut _) },
 });
 

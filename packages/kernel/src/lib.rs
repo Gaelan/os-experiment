@@ -1,24 +1,39 @@
+//! The THISOSSTILLDOESNTHAVEANAMEWHATAREWEDOING kernel. As small as possible, hopefully.
+
 #![feature(lang_items)]
+#![feature(const_fn)]
+#![feature(unique)]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy))]
+#![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
+#![cfg_attr(feature = "cargo-clippy", allow(shadow_same))]
+#![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 #![no_std]
 
 extern crate rlibc;
+extern crate spin;
+extern crate volatile;
+
+#[macro_use]
+mod vga_buffer;
 
 #[no_mangle]
-pub extern fn rust_main() {
-    let hello = b"Hello World!";
-    let color_byte = 0x8; // grey on black
+/// The first Rust code that runs when we boot. On x86_64, it is called from long_start.asm.
+pub extern "C" fn rust_main() {
+    // ATTENTION: we have a very small stack and no guard page
+    vga_buffer::clear_screen();
+    println!("foo {}", 5);
 
-    let mut hello_colored = [color_byte; 24];
-    for (i, char_byte) in hello.into_iter().enumerate() {
-        hello_colored[i*2] = *char_byte;
-    }
-
-    // write `Hello World!` to the center of the VGA text buffer
-    let buffer_ptr = (0xb8000 + 1988) as *mut _;
-    unsafe { *buffer_ptr = hello_colored };
-
-    loop{}
+    #[cfg_attr(feature = "cargo-clippy", allow(empty_loop))]
+    loop {}
 }
 
-#[lang = "eh_personality"] extern fn eh_personality() {}
-#[lang = "panic_fmt"] #[no_mangle] pub extern fn panic_fmt() -> ! {loop{}}
+#[lang = "eh_personality"]
+/// The Rust compiler requires this for exception handling. Currently a no-op.
+extern "C" fn eh_personality() {}
+#[lang = "panic_fmt"]
+#[no_mangle]
+/// The Rust compiler requires this for panic handling. Currently just loops forever.
+pub extern "C" fn panic_fmt() -> ! {
+    #[cfg_attr(feature = "cargo-clippy", allow(empty_loop))]
+    loop {}
+}

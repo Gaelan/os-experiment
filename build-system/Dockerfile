@@ -16,5 +16,6 @@ RUN cargo install xargo
 RUN rustup component add rust-src
 RUN cargo install rustfmt-nightly --force
 RUN cargo install clippy
+VOLUME /root/.xargo
 VOLUME /project
 WORKDIR /project

@@ -9,13 +9,19 @@
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 #![no_std]
 
+#[macro_use]
+extern crate bitflags;
 extern crate multiboot2;
 extern crate rlibc;
 extern crate spin;
 extern crate volatile;
+extern crate x86_64;
 
 #[macro_use]
 mod vga_buffer;
+mod memory;
+
+//use memory::FrameAllocator;
 
 #[no_mangle]
 /// The first Rust code that runs when we boot. On x86_64, it is called from long_start.asm.
@@ -69,6 +75,28 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) {
         "Multiboot Limits:\n\tmultiboot_start: 0x{:x} multiboot_end: 0x{:x}",
         multiboot_start, multiboot_end
     );
+
+    #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+    let mut frame_allocator = memory::AreaFrameAllocator::new(
+        kernel_start as usize,
+        kernel_end as usize,
+        multiboot_start,
+        multiboot_end,
+        memory_map_tag.memory_areas(),
+    );
+
+    println!("");
+
+    memory::test_paging(&mut frame_allocator);
+
+    /*
+    for i in 0.. {
+        if frame_allocator.allocate_frame().is_none() {
+            println!("Allocated {} frames", i);
+            break;
+        }
+    }
+    */
 
     #[cfg_attr(feature = "cargo-clippy", allow(empty_loop))]
     loop {}

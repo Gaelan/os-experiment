@@ -9,3 +9,5 @@ Cargo.lock
 
 # build output
 build
+*.iso
+*.kernel

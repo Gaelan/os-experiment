@@ -3,6 +3,9 @@
 **/*.rs.bk
 Cargo.lock
 
+# vim temp files
+*.swp
+
 # idea
 .idea
 *.iml

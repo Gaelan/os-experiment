@@ -21,7 +21,7 @@ extern crate x86_64;
 mod vga_buffer;
 mod memory;
 
-//use memory::FrameAllocator;
+use memory::FrameAllocator;
 
 #[no_mangle]
 /// The first Rust code that runs when we boot. On x86_64, it is called from long_start.asm.
@@ -56,23 +56,23 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) {
         .sections()
         .map(|s| s.addr)
         .min()
-        .expect("Unable to read elf sections tag");
+        .expect("elf sections tag required");
     let kernel_end = elf_sections_tag
         .sections()
         .map(|s| s.addr + s.size)
         .max()
-        .expect("Unable to read elf sections tag");
-
-    println!(
-        "Kernel Limits:\n\tkernel_start: 0x{:x} kernel_end: 0x{:x}",
-        kernel_start, kernel_end
-    );
+        .expect("elf sections tag required");
 
     let multiboot_start = multiboot_information_address;
     let multiboot_end = multiboot_start + (boot_info.total_size as usize);
 
     println!(
-        "Multiboot Limits:\n\tmultiboot_start: 0x{:x} multiboot_end: 0x{:x}",
+        "kernel_start: 0x{:x} kernel_end: 0x{:x}",
+        kernel_start, kernel_end
+    );
+
+    println!(
+        "multiboot_start: 0x{:x} multiboot_end: 0x{:x}",
         multiboot_start, multiboot_end
     );
 
@@ -85,8 +85,12 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) {
         memory_map_tag.memory_areas(),
     );
 
-    println!("");
+    enable_nxe_bit();
+    enable_write_protect_bit();
+    memory::remap_kernel(&mut frame_allocator, boot_info);
 
+    frame_allocator.allocate_frame();
+    println!("Kernel Successfully Remapped");
 
     /*
     for i in 0.. {
@@ -101,6 +105,22 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) {
     loop {}
 }
 
+/// Enable the NXE bit in the extended feature register (EFER) allowing the NO_EXECUTE bit to be set on pages
+fn enable_nxe_bit() {
+    use x86_64::registers::msr::{rdmsr, wrmsr, IA32_EFER};
+    let nxe_bit = 1 << 11;
+    unsafe {
+        let efer = rdmsr(IA32_EFER);
+        wrmsr(IA32_EFER, efer | nxe_bit);
+    }
+}
+
+/// Enable the write protect bit, so that the kernel can not write to pages not flagged as WRITABLE
+fn enable_write_protect_bit() {
+    use x86_64::registers::control_regs::{Cr0, cr0, cr0_write};
+    unsafe { cr0_write(cr0() | Cr0::WRITE_PROTECT) };
+}
+
 #[lang = "eh_personality"]
 /// The Rust compiler requires this for exception handling. Currently a no-op.
 extern "C" fn eh_personality() {}
@@ -109,7 +129,7 @@ extern "C" fn eh_personality() {}
 #[no_mangle]
 /// The Rust compiler requires this for panic handling. Currently just loops forever.
 pub extern "C" fn panic_fmt(fmt: core::fmt::Arguments, file: &'static str, line: u32) -> ! {
-    println!("\n\nPANIC in {} at line {}:", file, line);
+    println!("PANIC in {} at line {}:", file, line);
     println!("\t{}", fmt);
     #[cfg_attr(feature = "cargo-clippy", allow(empty_loop))]
     loop {}

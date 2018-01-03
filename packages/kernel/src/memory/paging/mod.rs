@@ -1,8 +1,12 @@
-//! The paging module manages the page table
+//! The paging module manages the page table as well as remapping the kernel
 pub use self::entry::*;
+pub use self::mapper::Mapper;
+use self::temporary_page::TemporaryPage;
 use memory::{Frame, FrameAllocator, PAGE_SIZE};
-use self::table::{Level4, Table};
-use core::ptr::Unique;
+use multiboot2::BootInformation;
+use x86_64::instructions::tlb;
+use x86_64::registers::control_regs;
+use core::ops::{Deref, DerefMut};
 
 mod entry;
 mod table;
@@ -24,10 +28,16 @@ pub struct Page {
     number: usize,
 }
 
-/// Current active page table
+/// Currently active page table
 pub struct ActivePageTable {
-    /// Top level (P4) page table
-    p4: Unique<Table<Level4>>,
+    /// Page mapper
+    mapper: Mapper,
+}
+
+/// Inactive page table
+pub struct InactivePageTable {
+    /// Page frame containing inactive P4 table
+    p4_frame: Frame,
 }
 
 impl Page {
@@ -67,127 +77,162 @@ impl Page {
     }
 }
 
+impl Deref for ActivePageTable {
+    type Target = Mapper;
+
+    fn deref(&self) -> &Mapper {
+        &self.mapper
+    }
+}
+
+impl DerefMut for ActivePageTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.mapper
+    }
+}
+
 impl ActivePageTable {
     /// ActivePageTable constructor
-    pub unsafe fn new() -> Self {
+    unsafe fn new() -> Self {
         Self {
-            p4: Unique::new_unchecked(table::P4),
+            mapper: Mapper::new(),
         }
     }
 
-    /// Get a reference to the P4 table
-    fn p4(&self) -> &Table<Level4> {
-        unsafe { self.p4.as_ref() }
-    }
+    #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+    /// Switch to an inactive page table from the current inactive page table
+    pub fn switch(&mut self, new_table: &InactivePageTable) -> InactivePageTable {
+        use x86_64::PhysicalAddress;
+        use x86_64::registers::control_regs;
 
-    /// Get a mutable reference to the P4 table
-    fn p4_mut(&mut self) -> &mut Table<Level4> {
-        unsafe { self.p4.as_mut() }
-    }
-
-    /// Translate virtual address to physical address
-    pub fn translate(&self, virtual_address: VirtualAddress) -> Option<PhysicalAddress> {
-        let offset = virtual_address % PAGE_SIZE;
-        self.translate_page(Page::containing_address(virtual_address))
-            .map(|frame| frame.number * PAGE_SIZE + offset)
-    }
-
-    /// Translate a page to a Frame, if it exists
-    fn translate_page(&self, page: Page) -> Option<Frame> {
-        use self::entry::HUGE_PAGE;
-        let p3 = self.p4().next_table(page.p4_index());
-        let huge_page = || {
-            p3.and_then(|p3| {
-                let p3_entry = &p3[page.p3_index()];
-                // 1GiB page?
-                if let Some(start_frame) = p3_entry.pointed_frame() {
-                    if p3_entry.flags().contains(HUGE_PAGE) {
-                        // address must be 1GiB aligned
-                        assert!(start_frame.number % (ENTRY_COUNT * ENTRY_COUNT) == 0);
-                        return Some(Frame {
-                            number: start_frame.number + page.p2_index() * ENTRY_COUNT
-                                + page.p1_index(),
-                        });
-                    }
-                }
-                if let Some(p2) = p3.next_table(page.p3_index()) {
-                    let p2_entry = &p2[page.p2_index()];
-                    // 2MiB page?
-                    if let Some(start_frame) = p2_entry.pointed_frame() {
-                        if p2_entry.flags().contains(HUGE_PAGE) {
-                            // address must be 2MiB aligned
-                            assert!(start_frame.number % ENTRY_COUNT == 0);
-                            return Some(Frame {
-                                number: start_frame.number + page.p1_index(),
-                            });
-                        }
-                    }
-                }
-                None
-            })
+        let old_table = InactivePageTable {
+            p4_frame: Frame::containing_address(control_regs::cr3().0 as usize),
         };
-
-        p3.and_then(|p3| p3.next_table(page.p3_index()))
-            .and_then(|p2| p2.next_table(page.p2_index()))
-            .and_then(|p1| p1[page.p1_index()].pointed_frame())
-            .or_else(huge_page)
+        unsafe {
+            control_regs::cr3_write(PhysicalAddress(new_table.p4_frame.start_address() as u64));
+        }
+        old_table
     }
 
-    /// Map a Page to a Frame
-    pub fn map_to<A>(&mut self, page: Page, frame: &Frame, flags: EntryFlags, allocator: &mut A)
-    where
-        A: FrameAllocator,
+    /// Execute f in a temporarily mapped address space
+    pub fn with<F>(
+        &mut self,
+        table: &mut InactivePageTable,
+        temporary_page: &mut TemporaryPage,
+        f: F,
+    ) where
+        F: FnOnce(&mut Mapper),
     {
-        let p4 = self.p4_mut();
-        let mut p3 = p4.next_table_create(page.p4_index(), allocator);
-        let mut p2 = p3.next_table_create(page.p3_index(), allocator);
-        let mut p1 = p2.next_table_create(page.p2_index(), allocator);
+        {
+            // Save original active P4 table address by reading from CR3 register
+            #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+            let original_p4 = Frame::containing_address(unsafe { control_regs::cr3().0 } as usize);
+            // Map temporary page to current P4 table
+            let p4_table = temporary_page.map_table_frame(&original_p4.clone(), self);
+            // Overwrite recursive mapping
+            self.p4_mut()[511].set(&table.p4_frame.clone(), PRESENT | WRITABLE);
+            tlb::flush_all();
 
-        //        assert!(p1[page.p1_index()].is_unused());
-        p1[page.p1_index()].set(frame, flags | PRESENT);
+            // Execute f in new context
+            f(self);
+
+            // Restore original active P4 table
+            p4_table[511].set(&original_p4, PRESENT | WRITABLE);
+            tlb::flush_all();
+        }
+        temporary_page.unmap(self);
     }
+}
 
-    /// Map a page to a new Frame
-    pub fn map<A>(&mut self, page: Page, flags: EntryFlags, allocator: &mut A)
-    where
-        A: FrameAllocator,
-    {
-        let frame = allocator.allocate_frame().expect("out of memory");
-        self.map_to(page, &frame, flags, allocator)
+impl InactivePageTable {
+    /// InactivePageTable constructor
+    pub fn new(
+        frame: Frame,
+        active_table: &mut ActivePageTable,
+        temporary_page: &mut TemporaryPage,
+    ) -> Self {
+        {
+            let table = temporary_page.map_table_frame(&frame.clone(), active_table);
+            // Clear table
+            table.zero();
+            // Recursively map table
+            table[511].set(&frame.clone(), PRESENT | WRITABLE);
+        }
+        temporary_page.unmap(active_table);
+
+        Self { p4_frame: frame }
     }
+}
 
-    /// Identity map a frame
-    pub fn identity_map<A>(&mut self, frame: &Frame, flags: EntryFlags, allocator: &mut A)
-    where
-        A: FrameAllocator,
-    {
-        let page = Page::containing_address(frame.start_address());
-        self.map_to(page, frame, flags, allocator)
-    }
+/// Remap the kernel to a different address space
+#[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
+where
+    A: FrameAllocator,
+{
+    let mut temporary_page = TemporaryPage::new(
+        Page {
+            number: 0xffff_ffff,
+        },
+        allocator,
+    );
 
-    /// Unmap a page
-    fn unmap<A>(&mut self, page: Page, allocator: &mut A)
-    where
-        A: FrameAllocator,
-    {
-        use x86_64::instructions::tlb;
-        use x86_64::VirtualAddress;
-        assert!(self.translate(page.start_address()).is_some());
+    let mut active_table = unsafe { ActivePageTable::new() };
+    let mut new_table = {
+        let frame = allocator
+            .allocate_frame()
+            .expect("could not allocate frame");
+        InactivePageTable::new(frame, &mut active_table, &mut temporary_page)
+    };
 
-        let p1 = self.p4_mut()
-            .next_table_mut(page.p4_index())
-            .and_then(|p3| p3.next_table_mut(page.p3_index()))
-            .and_then(|p2| p2.next_table_mut(page.p2_index()))
-            .expect("mapping code does not support huge pages");
-        //TODO check if the following expect message is correct
-        let frame = p1[page.p1_index()]
-            .pointed_frame()
-            .expect("could not access page frame");
-        p1[page.p1_index()].set_unused();
+    active_table.with(&mut new_table, &mut temporary_page, |mapper| {
+        let elf_sections_tag = boot_info
+            .elf_sections_tag()
+            .expect("elf memory map tag required");
 
-        tlb::flush(VirtualAddress(page.start_address()));
+        for section in elf_sections_tag.sections() {
+            if !section.is_allocated() || section.size == 0 {
+                // Section is not loaded in memory and is skipped
+                continue;
+            }
 
-        // TODO free p(1,2,3) table if empty
-        //        allocator.deallocate_frame(frame);
-    }
+            assert_eq!(
+                section.addr as usize % PAGE_SIZE,
+                0,
+                "sections need to be page aligned"
+            );
+            println!(
+                "mapping section at addr: {:#x}, size: {:#x}",
+                section.addr, section.size
+            );
+
+            let flags = EntryFlags::from_elf_section_flags(section);
+
+            let start_frame = Frame::containing_address(section.start_address());
+            let end_frame = Frame::containing_address(section.end_address() - 1);
+            for frame in Frame::range_inclusive(start_frame, end_frame) {
+                mapper.identity_map(&frame, flags, allocator);
+            }
+        }
+
+        // Identity map VGA text mode buffer
+        let vga_buffer_frame = Frame::containing_address(0xb_8000);
+        mapper.identity_map(&vga_buffer_frame, WRITABLE, allocator);
+
+        // Identity map Multiboot info structure
+        let multiboot_start = Frame::containing_address(boot_info.start_address());
+        let multiboot_end = Frame::containing_address(boot_info.end_address() - 1);
+        for frame in Frame::range_inclusive(multiboot_start, multiboot_end) {
+            mapper.identity_map(&frame, PRESENT, allocator)
+        }
+    });
+
+    // Unmap old original p4 page (created in boot.asm) and use as a guard page
+    let old_table = active_table.switch(&new_table);
+    println!("Switched to new table");
+
+    let old_p4_page = Page::containing_address(old_table.p4_frame.start_address());
+    active_table.unmap(old_p4_page, allocator);
+    println!("guard page created at {:#x}", old_p4_page.start_address());
 }

@@ -9,12 +9,12 @@
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
 #![no_std]
 
-#[macro_use]
-extern crate bitflags;
 extern crate multiboot2;
 extern crate rlibc;
 extern crate spin;
 extern crate volatile;
+#[macro_use]
+extern crate bitflags;
 extern crate x86_64;
 
 #[macro_use]

@@ -53,7 +53,7 @@ impl Entry {
 
     /// Return frame pointed to, if present
     pub fn pointed_frame(&self) -> Option<Frame> {
-        if self.flags().contains(PRESENT) {
+        if self.flags().contains(EntryFlags::PRESENT) {
             Some(Frame::containing_address(
                 self.0 as usize & 0x000f_ffff_ffff_f000,
             ))
@@ -75,13 +75,13 @@ impl EntryFlags {
         let mut flags = Self::empty();
 
         if section.flags().contains(ELF_SECTION_ALLOCATED) {
-            flags |= PRESENT;
+            flags |= Self::PRESENT;
         }
         if section.flags().contains(ELF_SECTION_WRITABLE) {
-            flags |= WRITABLE;
+            flags |= Self::WRITABLE;
         }
         if !section.flags().contains(ELF_SECTION_EXECUTABLE) {
-            flags |= NO_EXECUTE;
+            flags |= Self::NO_EXECUTE;
         }
 
         flags

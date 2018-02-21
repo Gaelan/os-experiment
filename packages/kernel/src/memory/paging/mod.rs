@@ -2,7 +2,7 @@
 pub use self::entry::*;
 pub use self::mapper::Mapper;
 use self::temporary_page::TemporaryPage;
-use memory::{Frame, FrameAllocator, PAGE_SIZE};
+use memory::{EntryFlags, Frame, FrameAllocator, PAGE_SIZE};
 use multiboot2::BootInformation;
 use x86_64::instructions::tlb;
 use x86_64::registers::control_regs;
@@ -26,6 +26,14 @@ pub type VirtualAddress = usize;
 pub struct Page {
     /// Page number
     number: usize,
+}
+
+/// Page Iterator
+pub struct PageIter {
+    /// Start Page
+    start: Page,
+    /// End Page
+    end: Page,
 }
 
 /// Currently active page table
@@ -58,6 +66,14 @@ impl Page {
         self.number * PAGE_SIZE
     }
 
+    /// Get an iterator over a range of Pages
+    pub fn range_inclusive(start: Self, end: Self) -> PageIter {
+        PageIter {
+            start: start,
+            end: end,
+        }
+    }
+
     /// Get index of entry to P4 table
     fn p4_index(&self) -> usize {
         (self.number >> 27) & 0o777
@@ -74,6 +90,20 @@ impl Page {
     #[cfg_attr(feature = "cargo-clippy", allow(identity_op))]
     fn p1_index(&self) -> usize {
         (self.number >> 0) & 0o777
+    }
+}
+
+impl Iterator for PageIter {
+    type Item = Page;
+
+    fn next(&mut self) -> Option<Page> {
+        if self.start.number <= self.end.number {
+            let page = self.start;
+            self.start.number += 1;
+            Some(page)
+        } else {
+            None
+        }
     }
 }
 
@@ -131,14 +161,17 @@ impl ActivePageTable {
             // Map temporary page to current P4 table
             let p4_table = temporary_page.map_table_frame(&original_p4.clone(), self);
             // Overwrite recursive mapping
-            self.p4_mut()[511].set(&table.p4_frame.clone(), PRESENT | WRITABLE);
+            self.p4_mut()[511].set(
+                &table.p4_frame.clone(),
+                EntryFlags::PRESENT | EntryFlags::WRITABLE,
+            );
             tlb::flush_all();
 
             // Execute f in new context
             f(self);
 
             // Restore original active P4 table
-            p4_table[511].set(&original_p4, PRESENT | WRITABLE);
+            p4_table[511].set(&original_p4, EntryFlags::PRESENT | EntryFlags::WRITABLE);
             tlb::flush_all();
         }
         temporary_page.unmap(self);
@@ -157,7 +190,7 @@ impl InactivePageTable {
             // Clear table
             table.zero();
             // Recursively map table
-            table[511].set(&frame.clone(), PRESENT | WRITABLE);
+            table[511].set(&frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
         }
         temporary_page.unmap(active_table);
 
@@ -167,7 +200,7 @@ impl InactivePageTable {
 
 /// Remap the kernel to a different address space
 #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation)
+pub fn remap_kernel<A>(allocator: &mut A, boot_info: &BootInformation) -> ActivePageTable
 where
     A: FrameAllocator,
 {
@@ -218,13 +251,13 @@ where
 
         // Identity map VGA text mode buffer
         let vga_buffer_frame = Frame::containing_address(0xb_8000);
-        mapper.identity_map(&vga_buffer_frame, WRITABLE, allocator);
+        mapper.identity_map(&vga_buffer_frame, EntryFlags::WRITABLE, allocator);
 
         // Identity map Multiboot info structure
         let multiboot_start = Frame::containing_address(boot_info.start_address());
         let multiboot_end = Frame::containing_address(boot_info.end_address() - 1);
         for frame in Frame::range_inclusive(multiboot_start, multiboot_end) {
-            mapper.identity_map(&frame, PRESENT, allocator)
+            mapper.identity_map(&frame, EntryFlags::PRESENT, allocator)
         }
     });
 
@@ -235,4 +268,6 @@ where
     let old_p4_page = Page::containing_address(old_table.p4_frame.start_address());
     active_table.unmap(old_p4_page, allocator);
     println!("guard page created at {:#x}", old_p4_page.start_address());
+
+    active_table
 }

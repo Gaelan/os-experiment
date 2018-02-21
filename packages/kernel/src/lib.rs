@@ -2,104 +2,71 @@
 
 #![feature(lang_items)]
 #![feature(const_fn)]
+#![feature(alloc)]
+#![feature(allocator_api)]
+#![feature(global_allocator)]
+//#![feature(const_atomic_usize_new)]
 #![feature(unique)]
+#![feature(ptr_internals)]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy))]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 #![cfg_attr(feature = "cargo-clippy", allow(shadow_same))]
 #![cfg_attr(feature = "cargo-clippy", allow(doc_markdown))]
+#![cfg_attr(feature = "cargo-clippy", allow(unnecessary_mut_passed))]
+#![cfg_attr(feature = "cargo-clippy", allow(zero_ptr))]
 #![no_std]
 
 extern crate multiboot2;
 extern crate rlibc;
 extern crate spin;
 extern crate volatile;
+extern crate x86_64;
+
+#[macro_use]
+extern crate alloc;
 #[macro_use]
 extern crate bitflags;
-extern crate x86_64;
+#[macro_use]
+extern crate once;
 
 #[macro_use]
 mod vga_buffer;
 mod memory;
 
-use memory::FrameAllocator;
+use alloc::boxed::Box;
+//use memory::FrameAllocator;
+use memory::heap_allocator::BumpAllocator;
+
+/// Start of heap space
+pub const HEAP_START: usize = 0o0_000_010_000_000_000;
+/// Size of heap space
+pub const HEAP_SIZE: usize = 100 * 1024; // 100 KiB
+
+#[global_allocator]
+/// Global heap allocator
+static HEAP_ALLOCATOR: BumpAllocator = BumpAllocator::new(HEAP_START, HEAP_START + HEAP_SIZE);
 
 #[no_mangle]
 /// The first Rust code that runs when we boot. On x86_64, it is called from long_start.asm.
 pub extern "C" fn rust_main(multiboot_information_address: usize) {
-    // ATTENTION: we have no guard page
+    #![cfg_attr(feature = "cargo-clippy", allow(use_debug))]
     vga_buffer::clear_screen();
 
     let boot_info = unsafe { multiboot2::load(multiboot_information_address) };
-    let memory_map_tag = boot_info.memory_map_tag().expect("Memory map tag required");
-
-    println!("Memory Areas:");
-    for area in memory_map_tag.memory_areas() {
-        println!(
-            "\tstart: 0x{:x},\tlength: 0x{:x}",
-            area.base_addr, area.length
-        );
-    }
-
-    let elf_sections_tag = boot_info
-        .elf_sections_tag()
-        .expect("Elf-sections tag required");
-
-    println!("Kernel Sections:");
-    for section in elf_sections_tag.sections() {
-        println!(
-            "\taddr: 0x{:x}, size: 0x{:x}, flags: 0x{:x}",
-            section.addr, section.size, section.flags
-        );
-    }
-
-    let kernel_start = elf_sections_tag
-        .sections()
-        .map(|s| s.addr)
-        .min()
-        .expect("elf sections tag required");
-    let kernel_end = elf_sections_tag
-        .sections()
-        .map(|s| s.addr + s.size)
-        .max()
-        .expect("elf sections tag required");
-
-    let multiboot_start = multiboot_information_address;
-    let multiboot_end = multiboot_start + (boot_info.total_size as usize);
-
-    println!(
-        "kernel_start: 0x{:x} kernel_end: 0x{:x}",
-        kernel_start, kernel_end
-    );
-
-    println!(
-        "multiboot_start: 0x{:x} multiboot_end: 0x{:x}",
-        multiboot_start, multiboot_end
-    );
-
-    #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-    let mut frame_allocator = memory::AreaFrameAllocator::new(
-        kernel_start as usize,
-        kernel_end as usize,
-        multiboot_start,
-        multiboot_end,
-        memory_map_tag.memory_areas(),
-    );
-
     enable_nxe_bit();
     enable_write_protect_bit();
-    memory::remap_kernel(&mut frame_allocator, boot_info);
+    memory::init(boot_info);
 
-    frame_allocator.allocate_frame();
-    println!("Kernel Successfully Remapped");
+    let mut heap_test = Box::new(42);
+    *heap_test -= 15;
+    let heap_test2 = Box::new("hello");
+    println!("{:?} {:?}", heap_test, heap_test2);
 
-    /*
-    for i in 0.. {
-        if frame_allocator.allocate_frame().is_none() {
-            println!("Allocated {} frames", i);
-            break;
-        }
+    let mut vec_test = vec![1, 2, 3, 4, 5, 6, 7];
+    vec_test[3] = 42;
+    for i in &vec_test {
+        print!("{} ", i);
     }
-    */
 
     #[cfg_attr(feature = "cargo-clippy", allow(empty_loop))]
     loop {}

@@ -44,7 +44,7 @@ impl Mapper {
                 let p3_entry = &p3[page.p3_index()];
                 // 1GiB page?
                 if let Some(start_frame) = p3_entry.pointed_frame() {
-                    if p3_entry.flags().contains(HUGE_PAGE) {
+                    if p3_entry.flags().contains(EntryFlags::HUGE_PAGE) {
                         // address must be 1GiB aligned
                         assert!(start_frame.number % (ENTRY_COUNT * ENTRY_COUNT) == 0);
                         return Some(Frame {
@@ -57,7 +57,7 @@ impl Mapper {
                     let p2_entry = &p2[page.p2_index()];
                     // 2MiB page?
                     if let Some(start_frame) = p2_entry.pointed_frame() {
-                        if p2_entry.flags().contains(HUGE_PAGE) {
+                        if p2_entry.flags().contains(EntryFlags::HUGE_PAGE) {
                             // address must be 2MiB aligned
                             assert!(start_frame.number % ENTRY_COUNT == 0);
                             return Some(Frame {
@@ -82,12 +82,12 @@ impl Mapper {
         A: FrameAllocator,
     {
         let p4 = self.p4_mut();
-        let mut p3 = p4.next_table_create(page.p4_index(), allocator);
-        let mut p2 = p3.next_table_create(page.p3_index(), allocator);
-        let mut p1 = p2.next_table_create(page.p2_index(), allocator);
+        let p3 = p4.next_table_create(page.p4_index(), allocator);
+        let p2 = p3.next_table_create(page.p3_index(), allocator);
+        let p1 = p2.next_table_create(page.p2_index(), allocator);
 
         assert!(p1[page.p1_index()].is_unused());
-        p1[page.p1_index()].set(frame, flags | PRESENT);
+        p1[page.p1_index()].set(frame, flags | EntryFlags::PRESENT);
     }
 
     /// Map a page to a new Frame
@@ -123,13 +123,13 @@ impl Mapper {
             .and_then(|p2| p2.next_table_mut(page.p2_index()))
             .expect("mapping code does not support huge pages");
         //TODO check if the following expect message is correct
-        let frame = p1[page.p1_index()]
+        let _frame = p1[page.p1_index()]
             .pointed_frame()
             .expect("couldn't find page frame");
         p1[page.p1_index()].set_unused();
         tlb::flush(VirtualAddress(page.start_address()));
 
         // TODO free p(1,2,3) table if empty
-        // allocator.deallocate_frame(frame);
+        // allocator.deallocate_frame(_frame);
     }
 }

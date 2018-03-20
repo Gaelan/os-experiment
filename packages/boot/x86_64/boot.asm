@@ -182,12 +182,6 @@ gdt64:
     dw $ - gdt64 - 1
     dq gdt64
 
-ok_msg:
-	db 'O',0x2,'K',0x2
-ok_msg_end:
-rainbow:
-	db 'R',0x0,'A',0x1,'I',0x2, 'N', 0x3,'B',0x4,'O',0x5,'W',0x6,'S',0x7,'!',0x8,'!',0x9,'!',0xA
-rainbow_end:
 error_msg:
 	db 'E',4,'R',4,'R',4,'O',4,'R',4,':',4
 error_msg_end:

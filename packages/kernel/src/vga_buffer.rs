@@ -191,6 +191,7 @@ pub fn _print(args: fmt::Arguments) {
 }
 
 macro_rules! println {
+    () => (print!("\n"));
     ($fmt:expr) => (print!(concat!($fmt, "\n")));
     ($fmt:expr, $($arg:tt)*) => (print!(concat!($fmt, "\n"), $($arg)*));
 }

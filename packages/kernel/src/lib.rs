@@ -16,6 +16,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(zero_ptr))]
 #![no_std]
 
+extern crate linked_list_allocator;
 extern crate multiboot2;
 extern crate rlibc;
 extern crate spin;
@@ -33,8 +34,8 @@ extern crate once;
 mod vga_buffer;
 mod memory;
 
+use linked_list_allocator::LockedHeap;
 use alloc::boxed::Box;
-//use memory::FrameAllocator;
 use memory::heap_allocator::BumpAllocator;
 
 /// Start of heap space
@@ -44,7 +45,8 @@ pub const HEAP_SIZE: usize = 100 * 1024; // 100 KiB
 
 #[global_allocator]
 /// Global heap allocator
-static HEAP_ALLOCATOR: BumpAllocator = BumpAllocator::new(HEAP_START, HEAP_START + HEAP_SIZE);
+//static HEAP_ALLOCATOR: BumpAllocator = BumpAllocator::new(HEAP_START, HEAP_START + HEAP_SIZE);
+static HEAP_ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 #[no_mangle]
 /// The first Rust code that runs when we boot. On x86_64, it is called from long_start.asm.
@@ -56,6 +58,9 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) {
     enable_nxe_bit();
     enable_write_protect_bit();
     memory::init(boot_info);
+    unsafe {
+        HEAP_ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
+    }
 
     let mut heap_test = Box::new(42);
     *heap_test -= 15;

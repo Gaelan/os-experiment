@@ -156,6 +156,7 @@ impl ActivePageTable {
     {
         {
             // Save original active P4 table address by reading from CR3 register
+            #[allow(unused_unsafe)]
             #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
             let original_p4 = Frame::containing_address(unsafe { control_regs::cr3().0 } as usize);
             // Map temporary page to current P4 table

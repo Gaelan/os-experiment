@@ -7,7 +7,7 @@ authors = ["Gaelan Steele <gbs@canishe.com>, Tavi Kohn <tavi.kohn@gmail.com>"]
 crate-type = ["staticlib"]
 
 [dependencies]
-bit_field = "0.7"
+bit_field = "0.9"
 bitflags = "1.0"
 linked_list_allocator = "0.5"
 lazy_static = {version = "0.2", features = ["spin_no_std"]}

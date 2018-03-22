@@ -24,7 +24,7 @@ impl BumpAllocator {
         }
     }
 }
-
+#[allow(unused_variables)]
 unsafe impl<'a> Alloc for &'a BumpAllocator {
     unsafe fn alloc(&mut self, layout: Layout) -> Result<*mut u8, AllocErr> {
         loop {

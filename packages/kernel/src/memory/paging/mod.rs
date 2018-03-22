@@ -1,12 +1,12 @@
 //! The paging module manages the page table as well as remapping the kernel
-pub use self::entry::*;
+pub use self::entry::{Entry, EntryFlags};
 pub use self::mapper::Mapper;
 use self::temporary_page::TemporaryPage;
-use memory::{EntryFlags, Frame, FrameAllocator, PAGE_SIZE};
+use memory::{Frame, FrameAllocator, PAGE_SIZE};
 use multiboot2::BootInformation;
 use x86_64::instructions::tlb;
 use x86_64::registers::control_regs;
-use core::ops::{Deref, DerefMut};
+use core::ops::{Add, Deref, DerefMut};
 
 mod entry;
 mod table;
@@ -29,6 +29,7 @@ pub struct Page {
 }
 
 /// Page Iterator
+#[derive(Clone)]
 pub struct PageIter {
     /// Start Page
     start: Page,
@@ -62,7 +63,7 @@ impl Page {
     }
 
     /// Get the start address of this page
-    fn start_address(&self) -> usize {
+    pub fn start_address(&self) -> usize {
         self.number * PAGE_SIZE
     }
 
@@ -103,6 +104,15 @@ impl Iterator for PageIter {
             Some(page)
         } else {
             None
+        }
+    }
+}
+
+impl Add<usize> for Page {
+    type Output = Self;
+    fn add(self, rhs: usize) -> Self {
+        Self {
+            number: self.number + rhs,
         }
     }
 }

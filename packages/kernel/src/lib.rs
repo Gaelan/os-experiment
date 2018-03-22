@@ -1,4 +1,4 @@
-//! The THISOSSTILLDOESNTHAVEANAMEWHATAREWEDOING kernel. As small as possible, hopefully.
+//! The THISOSSTILLDOESNTHAVEANAMEWHATAREWEDOING kernel. As cool as possible, hopefully.
 
 #![feature(lang_items)]
 #![feature(const_fn)]
@@ -8,6 +8,7 @@
 //#![feature(const_atomic_usize_new)]
 #![feature(unique)]
 #![feature(ptr_internals)]
+#![feature(abi_x86_interrupt)]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy))]
 #![cfg_attr(feature = "cargo-clippy", deny(clippy_pedantic))]
 #![cfg_attr(feature = "cargo-clippy", allow(shadow_same))]
@@ -16,6 +17,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(zero_ptr))]
 #![no_std]
 
+extern crate bit_field;
 extern crate linked_list_allocator;
 extern crate multiboot2;
 extern crate rlibc;
@@ -23,20 +25,23 @@ extern crate spin;
 extern crate volatile;
 extern crate x86_64;
 
-#[macro_use]
+//#[macro_use]
 extern crate alloc;
 #[macro_use]
 extern crate bitflags;
+#[macro_use]
+extern crate lazy_static;
 #[macro_use]
 extern crate once;
 
 #[macro_use]
 mod vga_buffer;
 mod memory;
+mod interrupts;
 
 use linked_list_allocator::LockedHeap;
-use alloc::boxed::Box;
-use memory::heap_allocator::BumpAllocator;
+//use alloc::boxed::Box;
+//use memory::heap_allocator::BumpAllocator;
 
 /// Start of heap space
 pub const HEAP_START: usize = 0o0_000_010_000_000_000;
@@ -57,21 +62,30 @@ pub extern "C" fn rust_main(multiboot_information_address: usize) {
     let boot_info = unsafe { multiboot2::load(multiboot_information_address) };
     enable_nxe_bit();
     enable_write_protect_bit();
-    memory::init(boot_info);
+    let mut memory_controller = memory::init(boot_info);
     unsafe {
         HEAP_ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
     }
+    interrupts::init(&mut memory_controller);
 
-    let mut heap_test = Box::new(42);
-    *heap_test -= 15;
-    let heap_test2 = Box::new("hello");
-    println!("{:?} {:?}", heap_test, heap_test2);
+    // Raise a breakpoint exception
+    x86_64::instructions::interrupts::int3();
 
-    let mut vec_test = vec![1, 2, 3, 4, 5, 6, 7];
-    vec_test[3] = 42;
-    for i in &vec_test {
-        print!("{} ", i);
+    unsafe {
+        *(0xffff_ffff as *mut u64) = 42;
     }
+
+    #[allow(unused_unsafe)]
+    unsafe {
+        /// Overflow the kernel stack
+        #[allow(unconditional_recursion)]
+        fn stack_overflow() {
+            stack_overflow();
+        }
+        stack_overflow()
+    };
+
+    println!("Yay no crash!");
 
     #[cfg_attr(feature = "cargo-clippy", allow(empty_loop))]
     loop {}
